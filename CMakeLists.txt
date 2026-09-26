@@ -2,7 +2,7 @@
 cmake_minimum_required(VERSION 3.24)
 
 project(Paperboat
-    VERSION 1.0.0
+    VERSION 1.0.1
     LANGUAGES C CXX
     DESCRIPTION "PM64"
 )
@@ -292,11 +292,6 @@ FetchContent_MakeAvailable(dr_libs)
 
 file(GLOB_RECURSE PORT_SOURCES RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
     src/port/*.cpp
-    src/port/audio/*.c
-    src/port/audio/*.cpp
-    src/port/embedded/*.c
-    src/port/importer/*.cpp
-    src/port/sprite/*.cpp
     src/port/*.c
 )
 
@@ -670,10 +665,12 @@ elseif(UNIX)
     find_package(OpenGL REQUIRED)
 
     # CPU-specific optimizations
-    if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
-        set(CPU_OPTION -msse2 -mfpmath=sse)
-    elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
-        set(CPU_OPTION -mcpu=native)
+    if(NOT DEFINED CPU_OPTION)
+        if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
+            set(CPU_OPTION -msse2 -mfpmath=sse)
+        elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
+            set(CPU_OPTION -mcpu=native)
+        endif()
     endif()
 
     target_compile_options(${PROJECT_NAME} PRIVATE
