@@ -403,12 +403,21 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
     }
 
     std::shared_ptr<BS::thread_pool> threadPool = std::make_shared<BS::thread_pool>(1);
+    std::atomic<bool> needsArchiveSync { false };
 
     while (!extractDone) {
 #ifdef __EMSCRIPTEN__
         // Nothing in this loop is asynchronous, so without yielding the browser
         // never runs and the dialogs stop taking input.
         emscripten_sleep(0);
+
+        // The extracted archive only exists in the in-memory filesystem until
+        // the IndexedDB mount is synced, and the main loop's periodic sync has
+        // not started yet. Do it here, on the browser's main thread, or a reload
+        // throws the extraction away.
+        if (needsArchiveSync.exchange(false)) {
+            WebCache_Save();
+        }
 #endif
         if (PaperboatGui::PopupsQueued() > 0 || extracting) {
             goto render;
@@ -628,6 +637,7 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
                             threadPool->submit_task([&]() -> void {
                                 extract.GenerateOTR(extractCount, totalExtract, "boat");
                                 extracting = false;
+                                needsArchiveSync = true;
                             });
                         };
                         if (args.empty()) {
@@ -684,6 +694,7 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
                             threadPool->submit_task([&]() -> void {
                                 extract.GenerateOTR(extractCount, totalExtract, "boat");
                                 extracting = false;
+                                needsArchiveSync = true;
                             });
                         });
                     } else {
@@ -691,6 +702,7 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
                         threadPool->submit_task([&]() -> void {
                             extract.GenerateOTR(extractCount, totalExtract, "boat");
                             extracting = false;
+                            needsArchiveSync = true;
                         });
                     }
                 } else {
