@@ -56,6 +56,9 @@ if(EMSCRIPTEN)
     add_compile_definitions(USE_OPENGLES=1)
     add_compile_options(-pthread -sUSE_SDL=2 -fexceptions)
     add_link_options(-pthread -sUSE_SDL=2)
+    # libultraship's crash handler calls backtrace() without including
+    # <execinfo.h>, which Emscripten has no equivalent of.
+    include_directories("${CMAKE_SOURCE_DIR}/CMake/web-include")
 endif()
 
 if(ANDROID)
@@ -183,6 +186,16 @@ if(EMSCRIPTEN)
     endif()
     if(NOT _emsysroot)
         message(FATAL_ERROR "Could not determine the Emscripten sysroot for zlib")
+    endif()
+    # ZLIB_LIBRARY has to exist at configure time, and emcc only builds a port
+    # when something links it. sdl2-mt is the pthread build of SDL2, which
+    # -pthread makes emcc ask for.
+    execute_process(
+        COMMAND "${EMSCRIPTEN_ROOT_PATH}/embuilder" build zlib sdl2-mt
+        RESULT_VARIABLE _web_embuilder_result
+    )
+    if(NOT _web_embuilder_result EQUAL 0)
+        message(FATAL_ERROR "embuilder failed to build the Emscripten ports")
     endif()
     set(ZLIB_INCLUDE_DIR "${_emsysroot}/include" CACHE PATH "" FORCE)
     set(ZLIB_LIBRARY "${_emsysroot}/lib/wasm32-emscripten/libz.a" CACHE FILEPATH "" FORCE)
@@ -498,18 +511,29 @@ if(EMSCRIPTEN)
         -sFULL_ES3=1
         -sINITIAL_MEMORY=536870912
         -sALLOW_MEMORY_GROWTH=1
+        # The N64 heap and the extracted archive both want more than the 2 GB
+        # wasm32 default, and a browser tab has to be able to grow into it.
+        -sMAXIMUM_MEMORY=4294967296
+        # main() returning has to tear the runtime down, or the tab keeps a
+        # canvas that stopped drawing.
         -sEXIT_RUNTIME=1
         -sSTACK_SIZE=5242880
-        -sPTHREAD_POOL_SIZE=8
+        -sPTHREAD_POOL_SIZE=16
+        -sDEFAULT_PTHREAD_STACK_SIZE=4194304
         # The frame loop blocks; Asyncify lets it yield to the browser. Torch
         # is excluded — see src/port/web/asyncify-remove.txt.
         -sASYNCIFY=1
         "-sASYNCIFY_REMOVE=@${CMAKE_SOURCE_DIR}/src/port/web/asyncify-remove.txt"
         -sASYNCIFY_STACK_SIZE=8388608
+        # Binaryen's inliner merges single-caller functions, which grows the
+        # functions Asyncify has to instrument. Capping it keeps that bounded.
+        -sBINARYEN_EXTRA_PASSES=-ocimfs=1000
         -sASSERTIONS=1
         -sFORCE_FILESYSTEM=1
         -sEXPORTED_FUNCTIONS=_main,_malloc,_free
         -sEXPORTED_RUNTIME_METHODS=FS,ccall,cwrap,UTF8ToString,stringToUTF8
+        # Torch binds its ROM extractor to JS — see
+        # external/torch/src/lib/web.cpp.
         -lembind
         # Saves and the generated pm64.o2r live in IndexedDB under /storage.
         -lidbfs.js

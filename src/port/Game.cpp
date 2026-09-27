@@ -6,6 +6,7 @@
 #include "port/interpolation/FrameInterpolation.h"
 
 #ifdef __EMSCRIPTEN__
+#include <emscripten.h>
 #include <SDL2/SDL.h>
 #include "port/web/WebUtils.h"
 #endif
@@ -54,6 +55,12 @@ extern "C"
 
     // Main loop
     while (wnd->IsRunning()) {
+#ifdef __EMSCRIPTEN__
+        // The browser only gets to run when this stack unwinds, so yield every
+        // frame. Otherwise input arrives in 5 s batches, whenever the cache
+        // sync below happens to fire.
+        emscripten_sleep(0);
+#endif
         GameEngine::Instance->StartFrame();
         FrameInterpolation_StartRecord();
         Graphics_ThreadUpdate();

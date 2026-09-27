@@ -15,6 +15,7 @@
 #include "ui/PaperboatModMenuWindow.h"
 #include "ui/TouchControls.h"
 #ifdef __EMSCRIPTEN__
+#include <emscripten.h>
 #include "port/web/WebUtils.h"
 #endif
 #if (defined(__linux__) || defined(__APPLE__)) && !defined(__ANDROID__)
@@ -190,9 +191,10 @@ GameEngine::GameEngine() {
     AllocConsole();
 #endif
 
-    this->context = Ship::Context::CreateUninitializedInstance(
-        "Paperboat", "boat", Ship::Context::GetPathRelativeToAppDirectory("paperboat.cfg.json")
-    );
+    // Bare name: InitConfiguration resolves it against the app directory, and on
+    // web/iOS/Android that directory is absolute, so resolving it here too
+    // doubled the prefix and every config save landed in a path that does not exist.
+    this->context = Ship::Context::CreateUninitializedInstance("Paperboat", "boat", "paperboat.cfg.json");
     gShipContext = this->context;
 
     this->context->InitLogging();
@@ -403,6 +405,11 @@ void GameEngine::RunExtract(int argc, char* argv[]) {
     std::shared_ptr<BS::thread_pool> threadPool = std::make_shared<BS::thread_pool>(1);
 
     while (!extractDone) {
+#ifdef __EMSCRIPTEN__
+        // Nothing in this loop is asynchronous, so without yielding the browser
+        // never runs and the dialogs stop taking input.
+        emscripten_sleep(0);
+#endif
         if (PaperboatGui::PopupsQueued() > 0 || extracting) {
             goto render;
         }
