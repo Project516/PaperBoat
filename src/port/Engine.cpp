@@ -1162,14 +1162,17 @@ void GameEngine::AudioExit() {
             mAudio.processing = true; // Wake up the thread
         }
         mAudio.cv_to_thread.notify_one();
+    }
 
-        // Wait for thread to finish
-        if (mAudio.thread.joinable()) {
-            mAudio.thread.join();
-        }
-
+    // Join whenever the thread is joinable, not only while it is still marked
+    // running. The thread also clears `running` when it stops itself, and
+    // mAudio is a global, so leaving it joinable means its destructor runs
+    // std::thread::~thread at exit, which calls std::terminate.
+    if (mAudio.thread.joinable()) {
+        mAudio.thread.join();
         SPDLOG_INFO("Audio system shut down");
     }
+    mAudio.running = false;
 }
 
 void GameEngine::RunCommands(Gfx* Commands, const std::vector<std::unordered_map<Mtx*, MtxF>>& mtx_replacements) {
