@@ -1,6 +1,7 @@
 #include "audio/audio.h"
 #include "audio/core.h"
 #include "dx/profiling.h"
+#include "PR/os_thread.h"
 
 u8 nuAuPreNMI = 0;
 NUAuPreNMIFunc nuAuPreNMIFunc = nullptr;
@@ -94,8 +95,15 @@ void create_audio_system(void) {
     nuAuPreNMIFunc = nuAuPreNMIProc;
     au_driver_init(&auSynDriver, &config);
     au_engine_init(config.outputRate);
+#ifndef __EMSCRIPTEN__
     osCreateThread(&nuAuMgrThread, THREAD_ID_AUDIO, nuAuMgr, nullptr, &AuStack[NU_AU_STACK_SIZE / sizeof(u64)], NU_AU_MGR_THREAD_PRI);
     osStartThread(&nuAuMgrThread);
+#else
+    // The port stubs both of these out, so there is nothing to start. Calling
+    // them anyway traps the wasm runtime with an Asyncify unwind, which takes
+    // the whole page down before the first frame.
+    (void)nuAuMgr;
+#endif
 }
 
 void nuAuPreNMIFuncSet(NUAuPreNMIFunc func) {

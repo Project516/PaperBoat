@@ -1113,14 +1113,6 @@ void GameEngine::EndAudioFrame() {
 
 void GameEngine::AudioInit() {
     SPDLOG_INFO("Initializing audio system...");
-#ifdef __EMSCRIPTEN__
-    // create_audio_system() takes the runtime down on the web build: the
-    // runtime aborts a second or two later, before the first frame, and the
-    // abort message says nothing about audio. Skipping it lets the game boot.
-    // Audio is therefore silent in the browser until that is sorted out.
-    SPDLOG_INFO("Audio disabled on the web build for now");
-    return;
-#endif
 
     // NTSC: retraceCount=1 → AlFrameSize=552 (3 chunks of 184 samples)
     // Must be set before create_audio_system() which reads nusched.retraceCount
