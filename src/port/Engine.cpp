@@ -1091,11 +1091,13 @@ void GameEngine::HandleAudioThread() {
             mAudio.cv_from_thread.notify_one();
         }
     } catch (const std::exception& e) {
-        SPDLOG_ERROR("audio thread stopped: {}", e.what());
+        fprintf(stderr, "Paperboat audio thread stopped: %s\n", e.what());
+        fflush(stderr);
         mAudio.running = false;
         mAudio.processing = false;
     } catch (...) {
-        SPDLOG_ERROR("audio thread stopped: unknown exception");
+        fprintf(stderr, "Paperboat audio thread stopped: unknown exception\n");
+        fflush(stderr);
         mAudio.running = false;
         mAudio.processing = false;
     }

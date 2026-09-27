@@ -77,13 +77,25 @@ extern "C"
 #endif
         }
     } catch (const std::exception& e) {
-        SPDLOG_ERROR("game loop threw: {}", e.what());
+        // Not SPDLOG: logging from a failure path goes through an async logger
+        // that can itself throw, which would turn this into a terminate.
+        fprintf(stderr, "Paperboat game loop threw: %s\n", e.what());
+        fflush(stderr);
     } catch (...) {
-        SPDLOG_ERROR("game loop threw: unknown exception");
+        fprintf(stderr, "Paperboat game loop threw: unknown exception\n");
+        fflush(stderr);
     }
 
-    GameEngine::Instance->Destroy();
-    GameEngine::RelaunchIfRequested(argc, argv);
+    try {
+        GameEngine::Instance->Destroy();
+        GameEngine::RelaunchIfRequested(argc, argv);
+    } catch (const std::exception& e) {
+        fprintf(stderr, "Paperboat shutdown threw: %s\n", e.what());
+        fflush(stderr);
+    } catch (...) {
+        fprintf(stderr, "Paperboat shutdown threw: unknown exception\n");
+        fflush(stderr);
+    }
 #ifdef __EMSCRIPTEN__
     // Destroy() wrote the config after the last periodic sync. Not awaited: the
     // write finishes in the page after the runtime exits.
