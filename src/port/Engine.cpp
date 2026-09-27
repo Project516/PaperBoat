@@ -1023,68 +1023,81 @@ void GameEngine::HandleAudioThread() {
     int16_t audioBuffer[AUDIO_SAMPLES * 4 * 2];
     Acmd cmdList[0x800];
 
-    while (mAudio.running) {
-        {
-            std::unique_lock<std::mutex> lock(mAudio.mutex);
-            while (!mAudio.processing && mAudio.running) {
-                mAudio.cv_to_thread.wait(lock);
-            }
-            if (!mAudio.running)
-                break;
-        }
-
-        // A 60Hz tick owes 1600/3 samples at 32kHz, and alAudioFrame only renders
-        // whole AUDIO_SAMPLES blocks
-        auto produceFrame = [&]() {
-            int32_t cmdLen = 0;
-            int32_t frameSamples = (mAudio.sampleDebtThirds > 0) ? AlFrameSize : AlMinFrameSize;
-            mAudio.sampleDebtThirds += 1600 - 3 * frameSamples;
-
-            int byteLen = frameSamples * 2 * sizeof(int16_t);
-
-            memset(audioBuffer, 0, byteLen);
-
-            alAudioFrame(cmdList, &cmdLen, audioBuffer, frameSamples);
-
-            float master = AudioVolume_GetMaster();
-            if (master != 1.0f) {
-                int sampleCount = byteLen / (int) sizeof(int16_t);
-                for (int i = 0; i < sampleCount; i++) {
-                    audioBuffer[i] = (int16_t) (audioBuffer[i] * master);
+    // Nothing above this thread catches, so an exception escaping it terminates
+    // the process. On the web that is a dead page, so report it and stop the
+    // thread instead.
+    try {
+        while (mAudio.running) {
+            {
+                std::unique_lock<std::mutex> lock(mAudio.mutex);
+                while (!mAudio.processing && mAudio.running) {
+                    mAudio.cv_to_thread.wait(lock);
                 }
+                if (!mAudio.running)
+                    break;
             }
 
-            int32_t before = AudioPlayerBuffered();
-            AudioPlayerPlayFrame((uint8_t*) audioBuffer, byteLen);
+            // A 60Hz tick owes 1600/3 samples at 32kHz, and alAudioFrame only renders
+            // whole AUDIO_SAMPLES blocks
+            auto produceFrame = [&]() {
+                int32_t cmdLen = 0;
+                int32_t frameSamples = (mAudio.sampleDebtThirds > 0) ? AlFrameSize : AlMinFrameSize;
+                mAudio.sampleDebtThirds += 1600 - 3 * frameSamples;
 
-            bool accepted = AudioPlayerBuffered() >= before + (frameSamples / 2);
-            if (accepted && before == 0) {
-                SPDLOG_WARN("audio queue underran");
-            }
-        };
+                int byteLen = frameSamples * 2 * sizeof(int16_t);
 
-        // Two ticks per game frame, matching N64's 60Hz audio thread.
-        for (int pass = 0; pass < 2; pass++) {
-            if (AudioPlayerBuffered() > 2 * AudioPlayerGetDesiredBuffered()) {
-                break;
+                memset(audioBuffer, 0, byteLen);
+
+                alAudioFrame(cmdList, &cmdLen, audioBuffer, frameSamples);
+
+                float master = AudioVolume_GetMaster();
+                if (master != 1.0f) {
+                    int sampleCount = byteLen / (int) sizeof(int16_t);
+                    for (int i = 0; i < sampleCount; i++) {
+                        audioBuffer[i] = (int16_t) (audioBuffer[i] * master);
+                    }
+                }
+
+                int32_t before = AudioPlayerBuffered();
+                AudioPlayerPlayFrame((uint8_t*) audioBuffer, byteLen);
+
+                bool accepted = AudioPlayerBuffered() >= before + (frameSamples / 2);
+                if (accepted && before == 0) {
+                    SPDLOG_WARN("audio queue underran");
+                }
+            };
+
+            // Two ticks per game frame, matching N64's 60Hz audio thread.
+            for (int pass = 0; pass < 2; pass++) {
+                if (AudioPlayerBuffered() > 2 * AudioPlayerGetDesiredBuffered()) {
+                    break;
+                }
+                produceFrame();
             }
-            produceFrame();
+
+            // Refill after a map load drained the queue; exact pacing has no surplus to
+            // recover with. Bounded so a stalled device cannot wedge EndAudioFrame.
+            for (int guard = 0; guard < 32 && mAudio.running; guard++) {
+                if (AudioPlayerBuffered() + AlFrameSize >= AudioPlayerGetDesiredBuffered()) {
+                    break;
+                }
+                produceFrame();
+            }
+
+            {
+                std::unique_lock<std::mutex> lock(mAudio.mutex);
+                mAudio.processing = false;
+            }
+            mAudio.cv_from_thread.notify_one();
         }
-
-        // Refill after a map load drained the queue; exact pacing has no surplus to
-        // recover with. Bounded so a stalled device cannot wedge EndAudioFrame.
-        for (int guard = 0; guard < 32 && mAudio.running; guard++) {
-            if (AudioPlayerBuffered() + AlFrameSize >= AudioPlayerGetDesiredBuffered()) {
-                break;
-            }
-            produceFrame();
-        }
-
-        {
-            std::unique_lock<std::mutex> lock(mAudio.mutex);
-            mAudio.processing = false;
-        }
-        mAudio.cv_from_thread.notify_one();
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("audio thread stopped: {}", e.what());
+        mAudio.running = false;
+        mAudio.processing = false;
+    } catch (...) {
+        SPDLOG_ERROR("audio thread stopped: unknown exception");
+        mAudio.running = false;
+        mAudio.processing = false;
     }
 }
 

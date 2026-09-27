@@ -53,27 +53,33 @@ extern "C"
     init_game_globals();
     load_engine_data();
 
-    // Main loop
-    while (wnd->IsRunning()) {
+    try {
+        // Main loop
+        while (wnd->IsRunning()) {
 #ifdef __EMSCRIPTEN__
-        // The browser only gets to run when this stack unwinds, so yield every
-        // frame. Otherwise input arrives in 5 s batches, whenever the cache
-        // sync below happens to fire.
-        emscripten_sleep(0);
+            // The browser only gets to run when this stack unwinds, so yield every
+            // frame. Otherwise input arrives in 5 s batches, whenever the cache
+            // sync below happens to fire.
+            emscripten_sleep(0);
 #endif
-        GameEngine::Instance->StartFrame();
-        FrameInterpolation_StartRecord();
-        Graphics_ThreadUpdate();
-        FrameInterpolation_StopRecord();
+            GameEngine::Instance->StartFrame();
+            FrameInterpolation_StartRecord();
+            Graphics_ThreadUpdate();
+            FrameInterpolation_StopRecord();
 #ifdef __EMSCRIPTEN__
-        // A tab can close without warning, so sync periodically, not just on exit.
-        static uint32_t lastSync = 0;
-        const uint32_t now = SDL_GetTicks();
-        if (now - lastSync > 5000) {
-            lastSync = now;
-            WebCache_Save();
+            // A tab can close without warning, so sync periodically, not just on exit.
+            static uint32_t lastSync = 0;
+            const uint32_t now = SDL_GetTicks();
+            if (now - lastSync > 5000) {
+                lastSync = now;
+                WebCache_Save();
+            }
+#endif
         }
-#endif
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("game loop threw: {}", e.what());
+    } catch (...) {
+        SPDLOG_ERROR("game loop threw: unknown exception");
     }
 
     GameEngine::Instance->Destroy();
